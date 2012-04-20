@@ -1,0 +1,111 @@
+; stdlib.dasm16
+; by Vidocq.
+
+; V0.1 - inittail version wmemset(3), fc_wmemcpy(3), fc_wmemmove(3)
+
+; =====================================
+; wchar_t *wmemset(wchar_t *wcs, wchar_t wc, size_t n);
+; 
+; The wmemset() function is the wide-character equivalent of the memset() function. 
+; It fills the array of n wide-characters starting at wcs with n copies of the wide character wc.
+; wmemset() returns wcs.
+;
+; straight forward implementation ( nothing fancy )
+; Conforming to C99. 
+;
+; tested : http://0x10co.de/kp9qr
+; =====================================
+:fc_wmemset
+  SET PUSH , A
+  IFE A , 0
+  SET PC , fc_wmemset_return
+  IFE C , 0
+  SET PC , fc_wmemset_return
+  :fc_wmemset_loop
+  SET [A] , B
+	ADD A , 1
+    SUB C , 1
+	IFN C , 0
+	SET PC , fc_wmemset_loop
+  :fc_wmemset_return
+  SET A , POP
+  SET PC , POP
+
+; =====================================
+; wchar_t *wmemcpy(wchar_t *dest, const wchar_t *src, size_t n);
+;
+; The wmemcpy() function is the wide-character equivalent of the memcpy() function.
+; It copies n wide characters from the array starting at src to the array starting at dest.
+; The arrays may not overlap; use wmemmove() to copy between overlapping arrays.
+; The programmer must ensure that there is room for at least n wide characters at dest.
+; wmemcpy() returns dest.
+;
+; Conforming to C99. 
+;
+; tested http://0x10co.de/ytmn
+; =====================================
+:fc_wmemcpy
+  SET PUSH , A
+  IFE A , 0
+  SET PC , fc_wmemcpy_return
+  IFE B , 0
+  SET PC , fc_wmemcpy_return
+  IFE C , 0
+  SET PC , fc_wmemcpy_return
+  :fc_wmemcpy_loop
+  SET [A] , [B]
+	ADD A , 1
+	ADD B , 1
+    SUB C , 1
+	IFN C , 0
+	SET PC , fc_wmemcpy_loop
+  :fc_wmemcpy_return
+  SET A , POP
+  SET PC , POP
+
+; =====================================
+; wchar_t *wmemmove(wchar_t *dest, const wchar_t *src, size_t n);
+;  
+; The wmemmove() function is the wide-character equivalent of the memmove() function. 
+; It copies n wide characters from the array starting at src to the array starting at dest. The arrays may overlap.
+; The programmer must ensure that there is room for at least n wide characters at dest.
+; wmemmove() returns dest.
+;
+; straight forward implementation ( nothing fancy )
+; Conforming to C99. 
+;
+; tested http://0x10co.de/7lvy8
+; =====================================
+:fc_wmemmove
+  SET PUSH , A
+  IFE A , 0
+  SET PC , fc_wmemmove_return
+  IFE B , 0
+  SET PC , fc_wmemmove_return
+  IFE C , 0
+  SET PC , fc_wmemmove_return
+  IFG A , B  ; dest > src
+  SET PC , fc_wmemmove_reverse
+  :fc_wmemmove_forward
+    ADD C , A
+    :fc_wmemmove_forward_loop
+      SET [A] , [B]
+      ADD A , 1
+      ADD B , 1
+      IFN A , C
+      SET PC , fc_wmemmove_forward_loop
+    SET PC , fc_wmemmove_return
+  :fc_wmemmove_reverse
+    ADD A , C
+    ADD B , C
+    SET C , PEEK ; retrieves A
+    :fc_wmemmove_reverse_loop
+      SUB A , 1
+      SUB B , 1
+      SET [A] , [B]
+      IFN A , C
+      SET PC , fc_wmemmove_reverse_loop
+  :fc_wmemmove_return
+  SET A , POP
+  SET PC , POP
+  

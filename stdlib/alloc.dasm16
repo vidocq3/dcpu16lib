@@ -1,0 +1,300 @@
+; alloc.dasm
+; V 0.1 , by Vidocq
+
+; dynamic memory allocation implementation for the dcpu-16
+; provides C standard library malloc() , calloc() and free() functions
+; conforms ABI described at https://github.com/0x10cStandardsCommittee/0x10c-Standards/blob/master/ABI/Draft_ABI_1.txt
+
+; constants
+:pc_unit_size   dat 0x0001 ; size of UNIT struct in words
+
+; global variables (  may not be  best location , a predefined location on stack may be better )
+:pp_heap        dat 0x0000 ; HEAP word start address
+:p_heap_size    dat 0x0000 ; HEAP size in words
+:pp_free        dat 0x0000 ; address of NOT USED block available for next malloc
+
+;=====================================
+;void *msys_init( void *heap, unsigned len )
+:fc_msys_init
+  IFE A , 0                    ; validate heap address
+  SET PC , fc_msys_init_fail   
+  SET [pp_heap] , A
+  SHR B , 1                    ; convert to wordsize , odd bytesizes are rounded down
+  IFG [pc_unit_size] , B
+  SET PC , fc_msys_init_fail
+  SET [p_heap_size] , B
+  ; create unused unit at beginning of heap
+  SUB B , [pc_unit_size]
+  SET [A+0] , B                ; sets unit->m_length 
+  ; it is also the free memory block
+  SET [pp_free] , A
+  ; return heap size (in bytes ) on success
+  SET A , B
+  SHL A , 1  
+  SET PC , fc_msys_init_return
+  :fc_msys_init_fail
+  SET A , 0
+  :fc_msys_init_return
+
+SET B , 0
+SET PC, POP ; return
+
+;=====================================
+; public void *malloc( unsigned size )
+:fc_msys_malloc
+  SET PUSH, J
+  SUB SP, 5    ; Reserve 5 words for function locals
+  SET J, SP
+  ; [J+4] : not used
+  ; [J+3] : nsize      ; requested word size for memory allocation
+  ; [J+2] : fsize      ; free size available in NOT USED unit selected 
+  ; [J+1] : *p UNIT    ; unit pointer to the NOT USED selected unit
+  ; [J  ] : not used
+  
+  ; size value is passed in A register as byte size
+  ADD A , 1                    ; round up
+  SHR A , 1                    ; convert bytesize to wordsize
+  IFE A , 0                    ; if size is 0 , return null pointer
+  SET PC, fc_msys_malloc_fail
+  SET [J+3] , A                ; nsize , store on stack
+  
+  ; if the free memory unit is invalid we need to find one
+  IFE [pp_free] , 0            ; IF ( pp_free == null )
+  SET PC , fc_msys_malloc_compact
+  
+  ; OR if the available memory is not enough , we need to find room
+  SET B , [pp_free]
+  SET C , [B+0]                ; C = pp_free->m_length
+  AND C , 0x7FFF               ; for clarity ( shouldn't be needed )
+  IFG [J+3] , C                ; OR IF ( nsize > pp_free->m_length )
+  SET PC , fc_msys_malloc_compact
+
+  SET PC , fc_msys_malloc_0001_endif
+  :fc_msys_malloc_compact      ; THEN
+    SET A , [pp_heap]
+	SET B , [J+3]
+    JSR __fc_msys_compact
+	IFE A , 0
+    SET PC , fc_msys_malloc_fail
+    SET [pp_free] , A
+  :fc_msys_malloc_0001_endif
+
+  ; if we get here then we now pp_free points to a NOT USED 
+  ; memory block with enough allocated memory for the request
+  SET B , [pp_free]
+  SET C , [B+0]                   
+  AND C , 0x7FFF                  ; for clarity ( shouldn't be needed )
+  SET [J+2] , C                   ; fsize = pp_free->m_length
+  SET [J+1] , B                   ; p = pp_free
+  
+  ; check if fsize is large enough to split into 2 units
+  SET A , [J+1]                   ; fsize (actually it's still in A)
+  ADD A , [pc_unit_size]          ; to split we need extra room for at least the unit header
+  IFG A , [J+3]                   ; IF ( fsize+size_of(UNIT)  >  nsize
+  SET PC , fc_msys_malloc_split
+  
+  ; split not possible , take it all for the request and make pp_free invalid
+  SET [pp_free] , 0               ; invalidate pp_free
+  SET B , [J+1]                   ; p ( actually it's still in B )
+  BOR [B+0] , 0x8000              ; flag as used ( p->m_size |= 0x8000 )
+  
+  ; return the pointer to the allocated memory
+  SET A , [J+1]
+  ADD A , [pc_unit_size]
+  SET PC , fc_msys_malloc_return
+  
+  :fc_msys_malloc_split
+  ; shrink the NOT USED unit 
+  SET B , [J+1]                  
+  SET [B+0] , [J+3]               ; set new size ( p->m_size = nsize )
+  BOR [B+0] , 0x8000              ; flag as used ( p->m_size |= 0x8000 )
+  
+  ; create new NOT USED unit in remaining memory
+  SET B , [J+1]                   ; address of allocated unit ( now shrunk in size )
+  ADD B , [pc_unit_size]          ; add its unit size
+  ADD B , [J+3]                   ; add its assigned memory ( same as nsize )
+  SET [B+0] , [J+2]               ; new->m_size = fsize 
+  SUB [B+0] , [pc_unit_size]      ; new->m_size -= size_of(UNIT)
+  SUB [B+0] , [j+3]               ; new->m_size -= nsize
+
+  ; the new unit is the next free unit
+  SET [pp_free] , B
+  
+  ; return the pointer to the allocated memory
+  SET A , [J+1]
+  ADD A , [pc_unit_size]
+  SET PC , fc_msys_malloc_return
+
+  :fc_msys_malloc_fail
+  SET A , 0
+  :fc_msys_malloc_return
+
+  SET B , 0
+SET C , 0
+SET SP , J  ; restore SP
+ADD SP , 5  ; release function locals
+SET J, POP  ; restore J
+SET PC, POP ; return
+
+;=====================================
+; public void *calloc( unsigned size )
+:fc_msys_calloc   
+  SET PUSH, J
+  SUB SP, 3    ; Reserve 3 words for function locals
+  SET J, SP
+  ; [J+2] : size         ; requested size in bytes
+  ; [J+1] : *p_mem       ; the memory pointer returned by malloc
+  ; [J  ] : not used
+
+  SET [J+2] , A                  ; store requested size on local var
+  JSR fc_msys_malloc             ; passes size value in A register on
+  IFE A , 0                      ; malloc failed
+  SET PC , fc_msys_calloc_fail
+  SET [J+1] , A                  ; store returned pointer on local var
+
+  SET B , [J+2]                  ; retrieve requested length
+  ADD B , 1                      ; round up
+  SHR B , 1                      ; convert to word size
+  
+  jsr __fc_msys_clr              ; void __fc_msys_clr( WORD *A, unsigned B )
+
+  SET A , [J+1]                  ; retrieve address pointer from local var
+  SET PC , fc_msys_calloc_return
+
+  :fc_msys_calloc_fail
+  SET A , 0
+  :fc_msys_calloc_return
+
+SET PC , POP
+
+
+;=====================================
+; public void free( void *ptr )
+:fc_msys_free    
+  IFE A , 0                  ; sanity check
+  SET PC, fc_msys_free_return
+  SUB A , [pc_unit_size]     ; get unit address
+  AND [A] , 0x7FFF           ; removes used flag
+:fc_msys_free_return
+SET PC, POP ; return
+
+;=====================================
+; public void msys_compact( void )
+:fc_msys_compact      
+  SET A , [pp_heap]
+  SET B , 0xFFFF   ; max byte size , or 7FFF words
+  JSR __fc_msys_compact
+  SET [pp_free] , A
+  SET A , 0
+  SET B , 0
+:fc_msys_compact_return
+SET PC, POP ; return
+
+;=====================================
+; UNIT* msys_compact( UNIT *p, unsigned nsize )
+:__fc_msys_compact
+; ABI
+SET PUSH, I    ; used to store content of [pc_unit_size]
+SET PUSH, J    ; context saving
+SET PUSH, X    ; X used on inner loop as UNIT pointer 
+SET PUSH, Y    ; used as fsize
+SET PUSH, Z    ; used as top of heap address
+SET J, SP      ; use J to save stack pointer ( and refer to function locals )
+
+; A is used on outer loop as UNIT pointer
+; B retains nsize+1
+; C is used as scratch
+
+  ADD B , 1
+  SET Y , 0                ; fsize = 0
+  SET Z , [pp_heap]
+  ADD Z , [p_heap_size]
+  SUB Z , 1                ; Z = top heap address
+  SET I , [pc_unit_size]   ; I = unit_size
+  
+  ; while ( p!=null)
+  :__fc_msys_compact_outer_loop
+  IFE A , 0
+  SET PC , __fc_msys_compact_outer_loop_exit
+    ; if((p->size & 0x8000) == 0x8000 )
+    SET C , [A]
+	AND C , 0x8000
+	IFN C , 0x8000
+	SET PC , __fc_msys_compact_free
+	;then p = next(p)
+	  SET C , [A]
+	  AND C , 0x7FFF
+	  ADD C , I
+	  ADD A , C
+	  IFG A , Z
+	  SET A , 0
+	  SET PC , __fc_msys_compact_outer_loop
+	:__fc_msys_compact_free
+      ;else
+	  SET Y , [A]    ; fsize = p->size  ( no worries about used masks needed )
+	  SET X , Y
+	  ADD X , I
+	  ADD X , A
+	  IFG X , Z
+	  SET X , 0     ; q = next(p)
+	  ; while ( q!=null && !isUsed(q))
+	  :__fc_msys_compact_inner_loop
+	  IFE X , 0
+	  SET PC , __fc_msys_compact_inner_loop_exit
+      SET C , [X]
+	  AND C , 0x8000
+	  IFE C , 0x8000
+	  SET PC , __fc_msys_compact_inner_loop_exit
+	    SET C , [X]
+	    ADD Y , C
+		ADD Y , I     ; fsize += ( q->size + sizeof(UNIT) )
+	    ADD C , I
+	    ADD X , C
+	    IFG X , Z
+	    SET X , 0     ; q = next(q)
+  	    SET PC , __fc_msys_compact_inner_loop
+      :__fc_msys_compact_inner_loop_exit
+	  SET [A] , Y     ; p->size = fsize // joins all adjacent free mem.blocks
+	  IFG Y , B       ; if ( fsize > (nsize+1))
+	  SET PC , __fc_msys_compact_outer_loop_exit   ; then break
+	  SET A , X       ; p = q  // next for outer loop
+	  SET PC , __fc_msys_compact_outer_loop
+  :__fc_msys_compact_outer_loop_exit
+  ; return value is already in A
+  SET B , 0
+  SET C , 0
+; ABI
+SET SP , J  ; restore SP
+SET Z, POP
+SET Y, POP
+SET X, POP
+SET J, POP
+SET I, POP
+SET PC, POP ; return 
+
+;=====================================
+; UNIT* __fc_msys_clr( WORD *A, unsigned nsize )
+; fills memory with 0's starting at A for B words
+; start address may be 0 , last address may be FFFF
+; tested : http://0x10co.de/a5xk4
+:__fc_msys_clr                    ; void __fc_msys_clr( WORD *A, unsigned B )
+  IFG 1 , B                       ; sanity check , size must be larger then 0
+  SET PC , __fc_msys_clr_return
+  SUB B , 1                       ; convert size to zero-based offset
+  ADD B , A                       ; convert to top word address
+  set [A] , 0x0000                ; reset first address
+  IFE B , A                       ; top address reached ?
+  SET PC , __fc_msys_clr_return   ; YES : return
+
+  SET C , __fc_msys_clr_loop      ; speed optimizing , store loop address in a register
+  :__fc_msys_clr_loop             ; loop
+  ADD A , 1                       ; next address
+  set [A] , 0x0000                ; reset address
+  IFN B , A                       ; top address reached ?
+  SET PC , C                      ; NO : continue
+:__fc_msys_clr_return
+set A , 0
+set B , 0
+set C , 0
+set PC , POP
+
