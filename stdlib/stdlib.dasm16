@@ -1,7 +1,7 @@
 ; stdlib.dasm16
 ; by Vidocq.
-
-; V0.1 - inittail version wmemset(3), fc_wmemcpy(3), fc_wmemmove(3)
+; V0.1 - inititial version wmemset(), fc_wmemcpy(), fc_wmemmove()
+; V0.2 - added strcpy() , strlen() , strcat() , strcmp()
 
 ; =====================================
 ; wchar_t *wmemset(wchar_t *wcs, wchar_t wc, size_t n);
@@ -10,7 +10,7 @@
 ; It fills the array of n wide-characters starting at wcs with n copies of the wide character wc.
 ; wmemset() returns wcs.
 ;
-; straight forward implementation ( nothing fancy )
+; straight forward implementation
 ; Conforming to C99. 
 ;
 ; tested : http://0x10co.de/kp9qr
@@ -40,6 +40,7 @@
 ; The programmer must ensure that there is room for at least n wide characters at dest.
 ; wmemcpy() returns dest.
 ;
+; straight forward implementation
 ; Conforming to C99. 
 ;
 ; tested http://0x10co.de/ytmn
@@ -71,7 +72,7 @@
 ; The programmer must ensure that there is room for at least n wide characters at dest.
 ; wmemmove() returns dest.
 ;
-; straight forward implementation ( nothing fancy )
+; straight forward implementation
 ; Conforming to C99. 
 ;
 ; tested http://0x10co.de/7lvy8
@@ -109,3 +110,280 @@
   SET A , POP
   SET PC , POP
   
+; =====================================
+; char *strcpy(char *dest, const char *src);
+;  
+; The strcpy() function copies the string pointed to by src, including the
+; terminating null byte ('\0'), to the buffer pointed to by dest.  The strings
+; may not overlap, and the destination string dest must be large enough to
+; receive the copy.
+;
+; The strcpy() function return a pointer to the destination string dest.
+;
+; straight forward implementation
+; Conforming to C89 , C99. 
+;
+; tested http://0x10co.de/psmrj
+; =====================================
+; *** BYTE ALIGNED VERSION ***
+:fc_strcpy
+  SET PUSH , A
+  IFE A , 0
+  SET PC , fc_strcpy_return
+  IFE B , 0
+  SET PC , fc_strcpy_return
+
+  SET C , 0
+  
+  SHR B , 1  ; convert to word pointer
+  IFN O , 0  ; check alignment
+  ADD C , 1
+
+  SHR A , 1  ; convert to word pointer
+  IFN O , 0  ; check alignment
+  ADD C , 2
+
+  IFE C , 0
+  SET PC , fc_strcpy_lsb
+  IFE C , 1
+  SET PC , fc_strcpy_x_lsb
+  IFE C , 2
+  SET PC , fc_strcpy_x_msb
+  IFE C , 3
+  SET PC , fc_strcpy_msb
+  
+  :fc_strcpy_lsb
+    SET C , [B]
+	AND C , 0x00FF
+	AND [A] , 0xFF00
+	IFE C , 0
+	SET PC , fc_strcpy_return
+	BOR [A] , C
+  :fc_strcpy_msb
+    SET C , [B]
+	AND C , 0xFF00
+	AND [A] , 0x00FF
+	IFE C , 0
+	SET PC , fc_strcpy_return
+	BOR [A] , C
+    ADD A , 1
+	ADD B , 1
+	SET PC , fc_strcpy_lsb
+  :fc_strcpy_x_lsb
+    SET C , [B]
+	SHR C , 8
+	AND [A] , 0xFF00
+	IFE C , 0
+	SET PC , fc_strcpy_return
+	BOR [A] , C
+    ADD B , 1
+  :fc_strcpy_x_msb
+    SET C , [B]
+	SHL C , 8
+	AND [A] , 0x00FF
+	IFE C , 0
+	SET PC , fc_strcpy_return
+	BOR [A] , C
+	ADD A , 1
+	SET PC , fc_strcpy_x_lsb
+	
+  :fc_strcpy_return
+  SET A , POP
+  SET PC , POP
+  
+; =====================================
+; size_t strlen(const char *s);
+;  
+; The strlen() function calculates the length of the string s, excluding the terminating null byte (\0).
+;
+; The strlen() function returns the number of characters in s.
+;
+; straight forward implementation
+; Conforming to C89 , C99. 
+;
+; tested http://0x10co.de/fhirs
+; =====================================
+; *** BYTE ALIGNED VERSION ***
+:fc_strlen
+  SET B , 0
+  IFE A , 0
+  SET PC , fc_strlen_return
+  SHR A , 1  ; convert to word pointer
+  IFN O , 0  ; check alignment
+  SET PC , fc_strlen_MSB
+  :fc_strlen_LSB
+    SET C , [A]
+    AND C , 0x00FF
+    IFE C , 0x0000
+    SET PC , fc_strlen_return
+    ADD B , 1
+  :fc_strlen_MSB
+    SET C , [A]
+    AND C , 0xFF00
+    IFE C , 0x0000
+    SET PC , fc_strlen_return
+    ADD B , 1
+    ADD A , 1
+    SET PC , fc_strlen_LSB
+  :fc_strlen_return
+  SET A , B
+  SET PC , POP
+
+; =====================================
+; char *strcat(char *dest, const char *src);
+;  
+; The strcat() function appends the src string to the dest string, overwriting
+; the terminating null byte ('\0') at the end of dest, and then adds a
+; terminating null byte.  The strings may not overlap, and the dest string must
+; have enough space for the result.
+;
+; The strcat() function return a pointer to the resulting string dest
+;
+; straight forward implementation
+;
+; Conforming to C99. 
+;
+; tested http://0x10co.de/h3vh9
+; =====================================
+; *** BYTE ALIGNED VERSION ***
+:fc_strcat
+  SET PUSH , A
+  IFE A , 0
+  SET PC , fc_strcat_return
+  IFE B , 0
+  SET PC , fc_strcat_return
+  ; move up to end of dest
+  SHR A , 1  ; convert to word pointer
+  IFN O , 0  ; check alignment
+  SET PC , fc_strcat_MSB
+  :fc_strcat_LSB
+    SET C , [A]
+    AND C , 0x00FF
+    IFE C , 0x0000
+    SET PC , fc_strcat_cpy_0
+  :fc_strcat_MSB
+    SET C , [A]
+    AND C , 0xFF00
+    IFE C , 0x0000
+    SET PC , fc_strcat_cpy_1
+    ADD A , 1
+    SET PC , fc_strcat_LSB
+	
+   :fc_strcat_cpy_0
+   SHL A , 1  ; back to byte pointer
+   JSR fc_strcpy
+   SET PC , fc_strcat_return
+
+   :fc_strcat_cpy_1
+   SHL A , 1  ; back to byte pointer
+   ADD A , 1  ; align to MSB byte
+   JSR fc_strcpy
+	
+  :fc_strcat_return
+  SET A , POP
+  SET PC , POP
+ 
+; =====================================
+; int strcmp(const char *s1, const char *s2);
+;  
+; The strcmp() function compares the two strings s1 and s2.
+; It returns an integer less than, equal to, or greater than 
+; zero if s1 is found, respectively, to be less than, to match, 
+; or be greater than s2.
+;
+; The strcmp() functions return an integer less than, equal to, 
+; or greater than zero if s1 (or the first n bytes thereof) is found,
+; respectively, to be less than, to match, or be greater than s2.
+;
+; straight forward implementation
+; Conforming to C89 , C99. 
+;
+; tested http://0x10co.de/ra7kl
+;
+; =====================================
+; *** BYTE ALIGNED VERSION ***
+:fc_strcmp
+  SET PUSH , X
+  SET PUSH , Y
+  IFE A , 0
+  SET PC , fc_strcmp_return_LT
+  IFE B , 0
+  SET PC , fc_strcmp_return_GT
+
+  SET C , 0
+  
+  SHR B , 1  ; convert to word pointer
+  IFN O , 0  ; check alignment
+  ADD C , 1
+
+  SHR A , 1  ; convert to word pointer
+  IFN O , 0  ; check alignment
+  ADD C , 2
+
+  IFE C , 0
+  SET PC , fc_strcmp_lsb
+  IFE C , 1
+  SET PC , fc_strcmp_x_lsb
+  IFE C , 2
+  SET PC , fc_strcmp_x_msb
+  IFE C , 3
+  SET PC , fc_strcmp_msb
+  
+  :fc_strcmp_lsb
+    SET X , [A]
+	AND X , 0x00FF
+    SET Y , [B]
+	AND Y , 0x00FF
+	IFN X , Y
+	SET PC , fc_strcmp_return_CMP
+	IFE X , 0  ; impl.means both are 0
+	SET PC , fc_strcmp_return_EQ
+  :fc_strcmp_msb
+    SET X , [A]
+	AND X , 0xFF00
+    SET Y , [B]
+	AND Y , 0xFF00
+	IFN X , Y
+	SET PC , fc_strcmp_return_CMP
+	IFE X , 0  ; impl.means both are 0
+	SET PC , fc_strcmp_return_EQ
+    ADD A , 1
+	ADD B , 1
+	SET PC , fc_strcmp_lsb
+  :fc_strcmp_x_lsb
+    SET X , [A]
+	AND X , 0x00FF
+    SET Y , [B]
+	SHR Y , 8
+	IFN X , Y
+	SET PC , fc_strcmp_return_CMP
+	IFE X , 0  ; impl.means both are 0
+	SET PC , fc_strcmp_return_EQ
+    ADD B , 1
+  :fc_strcmp_x_msb
+    SET X , [A]
+	AND X , 0xFF00
+    SET Y , [B]
+	SHL Y , 8
+	IFN X , Y
+	SET PC , fc_strcmp_return_CMP
+	IFE X , 0  ; impl.means both are 0
+	SET PC , fc_strcmp_return_EQ
+	ADD A , 1
+	SET PC , fc_strcmp_x_lsb
+	
+  :fc_strcmp_return_CMP
+  IFG X , Y
+  SET PC , fc_strcmp_return_GT
+  :fc_strcmp_return_LT
+  SET A , 0xFFFF
+  SET PC , fc_strcmp_return
+  :fc_strcmp_return_GT
+  SET A , 0x0001
+  SET PC , fc_strcmp_return
+  :fc_strcmp_return_EQ
+  SET A , 0x0000
+  :fc_strcmp_return
+  SET Y , POP
+  SET X , POP
+  SET PC , POP
