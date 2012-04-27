@@ -1,7 +1,29 @@
 ; stdlib.dasm16
 ; by Vidocq.
+; 
+; provides functions that provide ANSI C (C90/C99) functionallity.
+; ( http://en.wikipedia.org/wiki/ANSI_C#C90 )
+; ( http://en.wikipedia.org/wiki/C99 )
+; 
 ; V0.1 - inititial version wmemset(), fc_wmemcpy(), fc_wmemmove()
 ; V0.2 - added strcpy() , strlen() , strcat() , strcmp()
+; V0.3 - dcpu V1.1 compliance : replaced O by EX
+;
+; 
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
 
 ; =====================================
 ; wchar_t *wmemset(wchar_t *wcs, wchar_t wc, size_t n);
@@ -13,7 +35,7 @@
 ; straight forward implementation
 ; Conforming to C99. 
 ;
-; tested : http://0x10co.de/kp9qr
+; tested : OK
 ; =====================================
 :fc_wmemset
   SET PUSH , A
@@ -43,7 +65,7 @@
 ; straight forward implementation
 ; Conforming to C99. 
 ;
-; tested http://0x10co.de/ytmn
+; tested : OK
 ; =====================================
 :fc_wmemcpy
   SET PUSH , A
@@ -75,7 +97,7 @@
 ; straight forward implementation
 ; Conforming to C99. 
 ;
-; tested http://0x10co.de/7lvy8
+; tested : OK
 ; =====================================
 :fc_wmemmove
   SET PUSH , A
@@ -123,7 +145,7 @@
 ; straight forward implementation
 ; Conforming to C89 , C99. 
 ;
-; tested http://0x10co.de/psmrj
+; tested : OK
 ; =====================================
 ; *** BYTE ALIGNED VERSION ***
 :fc_strcpy
@@ -136,11 +158,11 @@
   SET C , 0
   
   SHR B , 1  ; convert to word pointer
-  IFN O , 0  ; check alignment
+  IFN EX , 0  ; check alignment
   ADD C , 1
 
   SHR A , 1  ; convert to word pointer
-  IFN O , 0  ; check alignment
+  IFN EX , 0  ; check alignment
   ADD C , 2
 
   IFE C , 0
@@ -201,7 +223,7 @@
 ; straight forward implementation
 ; Conforming to C89 , C99. 
 ;
-; tested http://0x10co.de/fhirs
+; tested : OK
 ; =====================================
 ; *** BYTE ALIGNED VERSION ***
 :fc_strlen
@@ -209,7 +231,7 @@
   IFE A , 0
   SET PC , fc_strlen_return
   SHR A , 1  ; convert to word pointer
-  IFN O , 0  ; check alignment
+  IFN EX , 0  ; check alignment
   SET PC , fc_strlen_MSB
   :fc_strlen_LSB
     SET C , [A]
@@ -243,7 +265,7 @@
 ;
 ; Conforming to C99. 
 ;
-; tested http://0x10co.de/h3vh9
+; tested : OK
 ; =====================================
 ; *** BYTE ALIGNED VERSION ***
 :fc_strcat
@@ -254,7 +276,7 @@
   SET PC , fc_strcat_return
   ; move up to end of dest
   SHR A , 1  ; convert to word pointer
-  IFN O , 0  ; check alignment
+  IFN EX , 0  ; check alignment
   SET PC , fc_strcat_MSB
   :fc_strcat_LSB
     SET C , [A]
@@ -298,8 +320,7 @@
 ; straight forward implementation
 ; Conforming to C89 , C99. 
 ;
-; tested http://0x10co.de/ra7kl
-;
+; tested : OK
 ; =====================================
 ; *** BYTE ALIGNED VERSION ***
 :fc_strcmp
@@ -313,11 +334,11 @@
   SET C , 0
   
   SHR B , 1  ; convert to word pointer
-  IFN O , 0  ; check alignment
+  IFN EX , 0  ; check alignment
   ADD C , 1
 
   SHR A , 1  ; convert to word pointer
-  IFN O , 0  ; check alignment
+  IFN EX , 0  ; check alignment
   ADD C , 2
 
   IFE C , 0

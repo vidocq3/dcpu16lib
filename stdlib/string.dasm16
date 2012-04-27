@@ -1,0 +1,218 @@
+; stdlib.dasm16
+; by Vidocq.
+; 
+; provides functions that provide extra string manipulation functions.
+; (where possible functions are standard C/C++ like  )
+; 
+; V0.1 - inititial version fc_putc() , fc_strreverse() , fc_itoa()
+;
+;
+;
+; 
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+
+
+
+; =====================================
+; fc_DIGIT array
+; lookup table for conversion digit->ASCII
+; =====================================
+:fc_DIGIT
+dat 0x0030 , 0x0031 , 0x0032 , 0x0033 , 0x0034 , 0x0035 , 0x0036 , 0x0037
+dat 0x0038 , 0x0039 , 0x0041 , 0x0042 , 0x0043 , 0x0044 , 0x0045 , 0x0046
+
+; =====================================
+; fc_sputc()
+;
+; char *sputc(char* pos , char c )
+;
+; The sputc() puts the given char at the location pos.
+;
+; The sputc() function returns pos+1
+;
+; version 0.1
+; complies to : DCPUV1.1
+; tested : OK
+; =====================================
+; *** BYTE ALIGNED VERSION ***
+:fc_sputc
+  SET PUSH , A
+  AND B , 0x00FF   ; sanitise
+  SHR A , 1
+  IFN EX , 0
+  SET PC , fc_sputc_high
+  AND [A], 0xFF00
+  BOR [A], B
+  SET A , POP
+  ADD A , 1
+  SET PC , POP
+  :fc_sputc_high
+  AND [A], 0x00FF
+  SHL B , 8
+  BOR [A], B
+  SET A , POP
+  ADD A , 1
+  SET PC , POP
+
+
+; =====================================
+; strreverse()
+;
+; char *strreverse(char* begin, char* end)
+;  
+; The strreverse() reverses the order of characters in a given null terminated string.
+;
+; The strreverse() function returns begin.
+;
+; version 0.1
+; complies to : DCPUV1.1
+; tested : OK
+; =====================================
+; *** BYTE ALIGNED VERSION ***
+:fc_strreverse
+  SET PUSH , A
+  SET PUSH , X
+  SET PUSH , Y
+  IFE A , 0
+  SET PC , fc_strreverse_return
+  IFE B , 0
+  SET PC , fc_strreverse_return
+  IFG A , B
+  SET PC , fc_strreverse_return
+  IFE A , B
+  SET PC , fc_strreverse_return
+  ; loop
+  :fc_strreverse_loop
+  ; get *end
+  SET C , B
+  SHR C , 1
+  SET X , [C]  ; should not change O register
+  IFN EX , 0
+  SHR X , 8
+  AND X , 0x00FF
+  ; get *start , and set *start to *end
+  SET C , A
+  SHR C , 1
+  SET Y , [C]  ; should not change O register
+  IFN EX , 0
+  SET PC , fc_strreverse_start_hi
+  AND Y , 0x00FF
+  AND [C], 0xFF00
+  BOR [C], X
+  SET PC , fc_strreverse_end
+  :fc_strreverse_start_hi
+  SHR Y , 8
+  AND [C], 0x00FF
+  SHL X , 8
+  BOR [C], X
+  ; set *end to *start
+  :fc_strreverse_end
+  SET C , B
+  SHR C , 1
+  IFN EX , 0
+  SET PC , fc_strreverse_end_hi
+  AND [C], 0xFF00
+  BOR [C], Y
+  SET PC , fc_strreverse_loop_while
+  :fc_strreverse_end_hi
+  AND [C], 0x00FF
+  SHL Y , 8
+  BOR [C], Y
+  :fc_strreverse_loop_while
+  ADD A , 1
+  SUB B , 1
+  IFG B , A
+  SET PC , fc_strreverse_loop
+  :fc_strreverse_return
+  SET Y , POP
+  SET X , POP
+  SET A , POP
+  SET PC , POP
+
+; =====================================
+; itoa()
+;
+; char *itoa(int value, char *str, int base);
+;  
+; The itoa() function converts an integer value to a null-terminated string 
+; using the specified base and stores the result in the array given by str parameter.
+; If base is 10 and value is negative, the resulting string is preceded with a minus sign (-). 
+; With any other base, value is always considered unsigned.
+;
+; The itoa() function returns dest.
+;
+; version 0.1
+; complies to : DCPUV1.1
+; tested : OK
+; =====================================
+; *** BYTE ALIGNED VERSION ***
+:fc_itoa
+  SET PUSH , X       ; context save 
+  SET PUSH , Y       ; context save 
+  SET PUSH , B       ; store buffer pointer on top of stask , using a PEEK near the end !
+  ; we will be using sputc , move around registers so we can retain A as *buffer
+  SET X , A          ; put integer value in safe register
+  SET A , B          ; put byte pointer in A , wich is compatible with sputc
+  ; sanity check
+  IFE A , 0
+  SET PC , itoa_end
+  IFG 2 , C
+  SET PC , itoa_term
+  IFG C , 16
+  SET PC , itoa_term
+  ; detects sign & remembers it + makes value absolute ( only for base 10 )
+  IFE C , 10
+  SET PC , itoa_sign
+  SET PUSH , 0       ; flags number as not negative
+  SET PC , itoa_loop
+  :itoa_sign
+  SET Y , X
+  AND Y , 0x8000     ; sign bit
+  SET PUSH , Y       ; remember if negative
+  IFE Y , 0          ; if positive 
+  SET PC , itoa_loop ; then continue 
+  SUB X , 1          ; else 2's complement 
+  XOR X , 0xFFFF     ; 2's complement continued
+  ; loop
+  :itoa_loop
+    SET B , X
+    MOD B , C
+    SET B , [fc_DIGIT+B]
+    JSR fc_sputc       ; automaticly increases A
+    DIV X , C
+    IFN X , 0 
+    SET PC , itoa_loop
+  ; sign char 
+  IFE 0 , POP
+  SET PC , itoa_term
+  SET B , 0x2D       ; '-'
+  JSR fc_sputc       ; automaticly increases A
+  ; terminating '\0'
+  :itoa_term
+  SET B , 0x0        ; '\0'
+  JSR fc_sputc       ; automaticly increases A
+  ; now reverse string
+  ; char *strreverse(char* begin, char* end)
+  SET B , A
+  SUB B , 2
+  SET A , PEEK
+  JSR fc_strreverse
+  ; end
+  :itoa_end
+  SET A , POP        ; return value is buffer argument
+  SET Y , POP
+  SET X , POP
+  SET PC , POP
